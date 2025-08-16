@@ -1,4 +1,4 @@
-# GitHub Search MCP Server
+# Risky Business MCP Server
 
 A Model Context Protocol (MCP) server that enables AI assistants to search GitHub repositories with specialized support for CVE (Common Vulnerabilities and Exposures) research and proof-of-concept discovery.
 
