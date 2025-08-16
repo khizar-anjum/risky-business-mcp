@@ -834,6 +834,42 @@ async def get_kev_resource() -> str:
     
     return json.dumps(kev_data_cache, indent=2)
 
+@mcp.resource("assets://company/inventory")
+async def get_asset_inventory() -> str:
+    """
+    Expose the company asset inventory as a resource.
+    This provides a comprehensive list of IT assets for vulnerability assessment.
+    """
+    try:
+        asset_file_path = os.path.join(os.path.dirname(__file__), "asset_inventory.json")
+        with open(asset_file_path, 'r') as f:
+            asset_data = json.load(f)
+        
+        # Add metadata
+        inventory_with_metadata = {
+            "metadata": {
+                "total_assets": len(asset_data),
+                "last_updated": datetime.now().isoformat(),
+                "environments": list(set(asset.get("environment", "Unknown") for asset in asset_data)),
+                "vendors": list(set(asset.get("vendor", "Unknown") for asset in asset_data)),
+                "criticality_levels": list(set(asset.get("criticality", "Unknown") for asset in asset_data))
+            },
+            "assets": asset_data
+        }
+        
+        return json.dumps(inventory_with_metadata, indent=2)
+        
+    except FileNotFoundError:
+        return json.dumps({
+            "error": "Asset inventory file not found",
+            "message": "The asset_inventory.json file is missing from the server directory"
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({
+            "error": "Failed to load asset inventory",
+            "message": str(e)
+        }, indent=2)
+
 @mcp.tool()
 async def search_kev(
     ctx: Context[ServerSession, None],

@@ -1,0 +1,227 @@
+[
+  {
+    "vendor": "Microsoft",
+    "product": "SharePoint Server",
+    "versions": ["2019 Enterprise", "2022 Standard"],
+    "hostname": "PROD-SP-01",
+    "environment": "Production",
+    "criticality": "High",
+    "location": "Primary DC"
+  },
+  {
+    "vendor": "Apache",
+    "product": "Struts",
+    "versions": ["2.5.20"],
+    "hostname": "LEGACY-APP-03",
+    "environment": "Production",
+    "criticality": "Medium",
+    "location": "Secondary DC"
+  },
+  {
+    "vendor": "GitLab",
+    "product": "GitLab",
+    "versions": ["16.1.1 Community Edition"],
+    "hostname": "DEVOPS-GIT-01",
+    "environment": "Development",
+    "criticality": "High",
+    "location": "Cloud"
+  },
+  {
+    "vendor": "Microsoft",
+    "product": "Exchange Server",
+    "versions": ["2019 CU12"],
+    "hostname": "MAIL-EXCH-01",
+    "environment": "Production",
+    "criticality": "Critical",
+    "location": "Primary DC"
+  },
+  {
+    "vendor": "VMware",
+    "product": "vSphere",
+    "versions": ["7.0 U3"],
+    "hostname": "VMWARE-VCENTER-01",
+    "environment": "Infrastructure",
+    "criticality": "Critical",
+    "location": "Primary DC"
+  },
+  {
+    "vendor": "Citrix",
+    "product": "NetScaler",
+    "versions": ["13.1-48.47"],
+    "hostname": "LB-CITRIX-01",
+    "environment": "Production",
+    "criticality": "High",
+    "location": "DMZ"
+  },
+  {
+    "vendor": "Fortinet",
+    "product": "FortiGate",
+    "versions": ["7.2.5"],
+    "hostname": "FW-FORTI-01",
+    "environment": "Security",
+    "criticality": "Critical",
+    "location": "Network Perimeter"
+  },
+  {
+    "vendor": "Oracle",
+    "product": "WebLogic Server",
+    "versions": ["14.1.1.0.0"],
+    "hostname": "APP-WEBLOGIC-01",
+    "environment": "Production",
+    "criticality": "High",
+    "location": "Primary DC"
+  },
+  {
+    "vendor": "Jenkins",
+    "product": "Jenkins",
+    "versions": ["2.401.3 LTS"],
+    "hostname": "CI-JENKINS-01",
+    "environment": "Development",
+    "criticality": "Medium",
+    "location": "Cloud"
+  },
+  {
+    "vendor": "Atlassian",
+    "product": "Confluence",
+    "versions": ["8.5.2"],
+    "hostname": "COLLAB-CONF-01",
+    "environment": "Production",
+    "criticality": "Medium",
+    "location": "Cloud"
+  },
+  {
+    "vendor": "SolarWinds",
+    "product": "Orion Platform",
+    "versions": ["2023.4"],
+    "hostname": "MON-SOLARWINDS-01",
+    "environment": "Management",
+    "criticality": "High",
+    "location": "Management Network"
+  },
+  {
+    "vendor": "Microsoft",
+    "product": "Windows Server",
+    "versions": ["2019 Standard", "2022 Datacenter"],
+    "hostname": "WIN-DOMAIN-01",
+    "environment": "Infrastructure",
+    "criticality": "Critical",
+    "location": "Primary DC"
+  },
+  {
+    "vendor": "F5",
+    "product": "BIG-IP",
+    "versions": ["16.1.3.3"],
+    "hostname": "LB-F5-01",
+    "environment": "Production",
+    "criticality": "High",
+    "location": "DMZ"
+  },
+  {
+    "vendor": "Palo Alto Networks",
+    "product": "PAN-OS",
+    "versions": ["10.2.7"],
+    "hostname": "FW-PALO-01",
+    "environment": "Security",
+    "criticality": "Critical",
+    "location": "Network Perimeter"
+  },
+  {
+    "vendor": "Docker",
+    "product": "Docker Engine",
+    "versions": ["24.0.5"],
+    "hostname": "CONTAINER-DOCKER-01",
+    "environment": "Production",
+    "criticality": "High",
+    "location": "Cloud"
+  },
+  {
+    "vendor": "Kubernetes",
+    "product": "Kubernetes",
+    "versions": ["1.27.3"],
+    "hostname": "K8S-MASTER-01",
+    "environment": "Production",
+    "criticality": "High",
+    "location": "Cloud"
+  },
+  {
+    "vendor": "Adobe",
+    "product": "ColdFusion",
+    "versions": ["2023"],
+    "hostname": "WEB-COLDFUSION-01",
+    "environment": "Production",
+    "criticality": "Medium",
+    "location": "Secondary DC"
+  },
+  {
+    "vendor": "IBM",
+    "product": "WebSphere Application Server",
+    "versions": ["9.0.5.15"],
+    "hostname": "APP-WEBSPHERE-01",
+    "environment": "Production",
+    "criticality": "High",
+    "location": "Primary DC"
+  },
+  {
+    "vendor": "Cisco",
+    "product": "ASA",
+    "versions": ["9.19.1.7"],
+    "hostname": "FW-CISCO-01",
+    "environment": "Security",
+    "criticality": "Critical",
+    "location": "Branch Office"
+  },
+  {
+    "vendor": "Splunk",
+    "product": "Splunk Enterprise",
+    "versions": ["9.1.0"],
+    "hostname": "SIEM-SPLUNK-01",
+    "environment": "Security",
+    "criticality": "High",
+    "location": "SOC"
+  },
+  {
+    "vendor": "Zabbix",
+    "product": "Zabbix",
+    "versions": ["6.4.5"],
+    "hostname": "MON-ZABBIX-01",
+    "environment": "Management",
+    "criticality": "Medium",
+    "location": "Management Network"
+  },
+  {
+    "vendor": "N-able",
+    "product": "N-Central",
+    "versions": ["2024.1"],
+    "hostname": "RMM-NABLE-01",
+    "environment": "Management",
+    "criticality": "High",
+    "location": "Management Network"
+  },
+  {
+    "vendor": "Veeam",
+    "product": "Backup & Replication",
+    "versions": ["12.0"],
+    "hostname": "BACKUP-VEEAM-01",
+    "environment": "Infrastructure",
+    "criticality": "High",
+    "location": "Backup Site"
+  },
+  {
+    "vendor": "Microsoft",
+    "product": "SQL Server",
+    "versions": ["2019 Enterprise", "2022 Standard"],
+    "hostname": "DB-MSSQL-01",
+    "environment": "Production",
+    "criticality": "Critical",
+    "location": "Primary DC"
+  },
+  {
+    "vendor": "PostgreSQL",
+    "product": "PostgreSQL",
+    "versions": ["15.4"],
+    "hostname": "DB-POSTGRES-01",
+    "environment": "Production",
+    "criticality": "High",
+    "location": "Cloud"
+  }
+]
