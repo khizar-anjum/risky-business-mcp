@@ -88,7 +88,7 @@ async def search_github_repositories(
     query: str,
     sort: str = "best-match",
     order: str = "desc",
-    per_page: int = 30,
+    per_page: int = 5,
     page: int = 1
 ) -> str:
     """
@@ -98,7 +98,7 @@ async def search_github_repositories(
         query: The search query. Can include keywords and qualifiers like 'language:python', 'stars:>100', etc.
         sort: Sort results by 'stars', 'forks', 'help-wanted-issues', or 'updated'. Default is 'best-match'.
         order: Order results 'desc' (descending) or 'asc' (ascending). Default is 'desc'.
-        per_page: Number of results per page (max 100). Default is 30.
+        per_page: Number of results per page (max 100). Default is 5.
         page: Page number of results to fetch. Default is 1.
 
     Returns:
@@ -373,6 +373,140 @@ async def get_cve_from_nist(
             "message": f"Unexpected error: {str(e)}",
             "cve_id": cve_id
         }, indent=2)
+
+def parse_github_url(url: str) -> tuple[str, str]:
+    """
+    Parse a GitHub repository URL to extract owner and repo name.
+    
+    Args:
+        url: GitHub repository URL (e.g., "https://github.com/owner/repo" or "https://github.com/owner/repo.git")
+    
+    Returns:
+        Tuple of (owner, repo) extracted from the URL
+    
+    Raises:
+        ValueError: If the URL is not a valid GitHub repository URL
+    """
+    import re
+    
+    # Clean up the URL
+    url = url.strip().rstrip('/')
+    
+    # Remove .git suffix if present
+    if url.endswith('.git'):
+        url = url[:-4]
+    
+    # Match GitHub URL patterns
+    patterns = [
+        r'https?://github\.com/([^/]+)/([^/]+)',
+        r'git@github\.com:([^/]+)/([^/]+)',
+        r'github\.com/([^/]+)/([^/]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.match(pattern, url)
+        if match:
+            owner, repo = match.groups()
+            return owner, repo
+    
+    raise ValueError(f"Invalid GitHub URL format: {url}")
+
+@mcp.tool()
+async def list_github_repository_files(
+    ctx: Context[ServerSession, None],
+    repo_url: str,
+    branch: str = "main"
+) -> str:
+    """
+    List all files in a GitHub repository using the Git Trees API.
+    
+    Args:
+        repo_url: GitHub repository URL (e.g., "https://github.com/owner/repo")
+        branch: Branch name to get files from (default: "main")
+    
+    Returns:
+        JSON string containing the list of all files in the repository
+    """
+    await ctx.info(f"Listing files from repository: {repo_url}")
+    
+    try:
+        # Parse the GitHub URL to get owner and repo
+        owner, repo = parse_github_url(repo_url)
+        await ctx.info(f"Parsed repository: {owner}/{repo}")
+        
+        # Get GitHub token from environment (optional)
+        github_token = os.getenv("GITHUB_TOKEN")
+        
+        async with aiohttp.ClientSession() as session:
+            # First, try to get the repository info to validate it exists
+            repo_endpoint = f"/repos/{owner}/{repo}"
+            await ctx.info(f"Validating repository exists...")
+            
+            try:
+                await make_github_request(session, repo_endpoint, {}, github_token)
+            except Exception as e:
+                if "404" in str(e):
+                    raise ValueError(f"Repository {owner}/{repo} not found or not accessible")
+                raise e
+            
+            # Get the tree with all files recursively
+            tree_endpoint = f"/repos/{owner}/{repo}/git/trees/{branch}"
+            params = {"recursive": "1"}
+            
+            await ctx.info(f"Fetching file tree for branch '{branch}'...")
+            
+            response_data = await make_github_request(
+                session, tree_endpoint, params, github_token
+            )
+            
+            # Extract file information
+            files = []
+            directories = []
+            
+            for item in response_data.get("tree", []):
+                item_info = {
+                    "path": item["path"],
+                    "type": item["type"],
+                    "size": item.get("size"),
+                    "sha": item["sha"],
+                    "url": item.get("url")
+                }
+                
+                if item["type"] == "blob":  # File
+                    files.append(item_info)
+                elif item["type"] == "tree":  # Directory
+                    directories.append(item_info)
+            
+            # Prepare result summary
+            result = {
+                "repository": {
+                    "owner": owner,
+                    "name": repo,
+                    "url": repo_url,
+                    "branch": branch
+                },
+                "summary": {
+                    "total_files": len(files),
+                    "total_directories": len(directories),
+                    "total_items": len(files) + len(directories)
+                },
+                "files": files,
+                "directories": directories
+            }
+            
+            await ctx.info(f"Successfully retrieved {len(files)} files and {len(directories)} directories")
+            
+            return json.dumps(result, indent=2)
+            
+    except ValueError as e:
+        await ctx.error(f"Invalid input: {e}")
+        raise e
+    except aiohttp.ClientError as e:
+        await ctx.error(f"Network error while accessing GitHub API: {e}")
+        raise RuntimeError(f"Failed to connect to GitHub API: {e}")
+    except Exception as e:
+        await ctx.error(f"Unexpected error during file listing: {e}")
+        raise RuntimeError(f"GitHub file listing failed: {e}")
 
 @mcp.prompt()
 def cve_repository_search(cve_number: str, include_poc: bool = True) -> str:
