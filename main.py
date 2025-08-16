@@ -1,14 +1,15 @@
 """
-GitHub Repository Search MCP Server
+Risky Business AI MCP Server
 
-This server provides tools to search GitHub repositories and includes
-a prompt template for CVE-specific searches.
+This server provides tools to search GitHub repositories, query NIST NVD,
+and access CISA's Known Exploited Vulnerabilities catalog.
 """
 
 import asyncio
 import json
 import os
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 import aiohttp
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -16,11 +17,36 @@ from mcp.server.session import ServerSession
 # Create the MCP server
 mcp = FastMCP("Risky Business AI MCP Server")
 
-# GitHub API base URL
+# API URLs
 GITHUB_API_BASE = "https://api.github.com"
-
-# NIST NVD API base URL
 NIST_NVD_API_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+
+# Global cache for KEV data
+kev_data_cache: Optional[Dict[str, Any]] = None
+
+async def download_kev_data() -> Dict[str, Any]:
+    """Download the CISA KEV data from the official feed"""
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(CISA_KEV_URL) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    print(f"Successfully downloaded KEV data: {data.get('count', 0)} vulnerabilities")
+                    return data
+                else:
+                    print(f"Failed to download KEV data: HTTP {response.status}")
+                    return {"vulnerabilities": [], "count": 0}
+        except Exception as e:
+            print(f"Error downloading KEV data: {e}")
+            return {"vulnerabilities": [], "count": 0}
+
+async def initialize_kev_data():
+    """Initialize KEV data cache on server startup"""
+    global kev_data_cache
+    print("Downloading CISA Known Exploited Vulnerabilities catalog...")
+    kev_data_cache = await download_kev_data()
+    print(f"KEV data initialized with {kev_data_cache.get('count', 0)} entries")
 
 async def make_github_request(
     session: aiohttp.ClientSession,
@@ -509,6 +535,116 @@ Use these search patterns with the search_github_repositories tool for comprehen
 **Remember**: Always verify the authenticity and safety of any PoC code before use.
 """
 
+@mcp.resource("kev://cisa/catalog")
+async def get_kev_resource() -> str:
+    """
+    Expose the CISA Known Exploited Vulnerabilities catalog as a resource.
+    This provides the full KEV dataset for reference.
+    """
+    if kev_data_cache is None:
+        await initialize_kev_data()
+    
+    return json.dumps(kev_data_cache, indent=2)
+
+@mcp.tool()
+async def search_kev(
+    ctx: Context[ServerSession, None],
+    query: str,
+    field: str = "all",
+    max_results: int = 10
+) -> str:
+    """
+    Search the CISA Known Exploited Vulnerabilities (KEV) catalog.
+    
+    Args:
+        query: Search query (CVE ID, vendor name, product name, or keyword)
+        field: Field to search in - "all", "cve_id", "vendor", "product", "vulnerability_name", "date_added"
+        max_results: Maximum number of results to return (default 10, max 50)
+    
+    Returns:
+        JSON string containing matching KEV entries with exploitation details.
+    """
+    if kev_data_cache is None:
+        await initialize_kev_data()
+    
+    await ctx.info(f"Searching KEV catalog for: {query}")
+    
+    # Validate parameters
+    if max_results > 50:
+        max_results = 50
+    
+    valid_fields = ["all", "cve_id", "vendor", "product", "vulnerability_name", "date_added"]
+    if field not in valid_fields:
+        return json.dumps({
+            "status": "error",
+            "message": f"Invalid field. Must be one of: {', '.join(valid_fields)}"
+        }, indent=2)
+    
+    query_lower = query.lower()
+    results = []
+    
+    # Search through vulnerabilities
+    for vuln in kev_data_cache.get("vulnerabilities", []):
+        match = False
+        
+        if field == "all":
+            # Search across all text fields
+            searchable_text = " ".join([
+                str(vuln.get("cveID", "")),
+                str(vuln.get("vendorProject", "")),
+                str(vuln.get("product", "")),
+                str(vuln.get("vulnerabilityName", "")),
+                str(vuln.get("shortDescription", "")),
+                str(vuln.get("notes", ""))
+            ]).lower()
+            match = query_lower in searchable_text
+        elif field == "cve_id":
+            cve_id = vuln.get("cveID", "").lower()
+            match = query_lower in cve_id or cve_id in query_lower
+        elif field == "vendor":
+            match = query_lower in vuln.get("vendorProject", "").lower()
+        elif field == "product":
+            match = query_lower in vuln.get("product", "").lower()
+        elif field == "vulnerability_name":
+            match = query_lower in vuln.get("vulnerabilityName", "").lower()
+        elif field == "date_added":
+            match = query in vuln.get("dateAdded", "")
+        
+        if match:
+            results.append({
+                "cve_id": vuln.get("cveID"),
+                "vendor": vuln.get("vendorProject"),
+                "product": vuln.get("product"),
+                "vulnerability_name": vuln.get("vulnerabilityName"),
+                "date_added": vuln.get("dateAdded"),
+                "short_description": vuln.get("shortDescription"),
+                "required_action": vuln.get("requiredAction"),
+                "due_date": vuln.get("dueDate"),
+                "known_ransomware_use": vuln.get("knownRansomwareCampaignUse"),
+                "notes": vuln.get("notes")
+            })
+            
+            if len(results) >= max_results:
+                break
+    
+    # Sort results by date_added (most recent first)
+    results.sort(key=lambda x: x.get("date_added", ""), reverse=True)
+    
+    response = {
+        "status": "success",
+        "query": query,
+        "field": field,
+        "total_results": len(results),
+        "results": results
+    }
+    
+    if len(results) == 0:
+        response["message"] = f"No vulnerabilities found matching '{query}' in KEV catalog"
+    else:
+        await ctx.info(f"Found {len(results)} matching vulnerabilities in KEV catalog")
+    
+    return json.dumps(response, indent=2)
+
 if __name__ == "__main__":
-    # Run the server
+    # Run the server (KEV data will be loaded on first access)
     mcp.run()
