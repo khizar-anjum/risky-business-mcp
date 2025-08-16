@@ -14,10 +14,13 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 
 # Create the MCP server
-mcp = FastMCP("GitHub Search Server")
+mcp = FastMCP("Risky Business AI MCP Server")
 
 # GitHub API base URL
 GITHUB_API_BASE = "https://api.github.com"
+
+# NIST NVD API base URL
+NIST_NVD_API_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 async def make_github_request(
     session: aiohttp.ClientSession,
@@ -30,13 +33,13 @@ async def make_github_request(
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28"
     }
-    
+
     # Add authentication token if available
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    
+
     url = f"{GITHUB_API_BASE}{endpoint}"
-    
+
     async with session.get(url, headers=headers, params=params) as response:
         if response.status == 200:
             return await response.json()
@@ -44,6 +47,38 @@ async def make_github_request(
             raise ValueError("Invalid search query or validation failed")
         elif response.status == 503:
             raise RuntimeError("GitHub API service unavailable")
+        else:
+            response.raise_for_status()
+
+async def make_nist_request(
+    session: aiohttp.ClientSession,
+    cve_id: str,
+    api_key: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """Make a request to the NIST NVD API"""
+    headers = {
+        "Accept": "application/json"
+    }
+    
+    # Add API key if available (increases rate limit)
+    if api_key:
+        headers["apiKey"] = api_key
+    
+    params = {
+        "cveId": cve_id
+    }
+    
+    async with session.get(NIST_NVD_API_BASE, headers=headers, params=params) as response:
+        if response.status == 200:
+            data = await response.json()
+            # Check if any vulnerabilities were found
+            if data.get("totalResults", 0) > 0:
+                return data
+            return None
+        elif response.status == 403:
+            raise RuntimeError("NIST API rate limit exceeded. Consider using an API key.")
+        elif response.status == 404:
+            return None
         else:
             response.raise_for_status()
 
@@ -58,59 +93,59 @@ async def search_github_repositories(
 ) -> str:
     """
     Search GitHub repositories using the GitHub API.
-    
+
     Args:
         query: The search query. Can include keywords and qualifiers like 'language:python', 'stars:>100', etc.
         sort: Sort results by 'stars', 'forks', 'help-wanted-issues', or 'updated'. Default is 'best-match'.
         order: Order results 'desc' (descending) or 'asc' (ascending). Default is 'desc'.
         per_page: Number of results per page (max 100). Default is 30.
         page: Page number of results to fetch. Default is 1.
-    
+
     Returns:
         JSON string containing repository search results with URLs for accessing the repositories.
     """
     await ctx.info(f"Searching GitHub repositories for: {query}")
-    
+
     # Validate parameters
     if per_page > 100 or per_page < 1:
         raise ValueError("per_page must be between 1 and 100")
-    
+
     if page < 1:
         raise ValueError("page must be greater than 0")
-    
+
     valid_sorts = ["stars", "forks", "help-wanted-issues", "updated"]
     if sort != "best-match" and sort not in valid_sorts:
         raise ValueError(f"sort must be 'best-match' or one of: {', '.join(valid_sorts)}")
-    
+
     valid_orders = ["desc", "asc"]
     if order not in valid_orders:
         raise ValueError(f"order must be one of: {', '.join(valid_orders)}")
-    
+
     # Prepare API parameters
     params = {
         "q": query,
         "per_page": per_page,
         "page": page
     }
-    
+
     # Only add sort/order if not using best-match
     if sort != "best-match":
         params["sort"] = sort
         params["order"] = order
-    
+
     try:
         # Get GitHub token from environment (optional)
         github_token = os.getenv("GITHUB_TOKEN")
-        
+
         async with aiohttp.ClientSession() as session:
             await ctx.info("Making request to GitHub API...")
-            
+
             response_data = await make_github_request(
                 session, "/search/repositories", params, github_token
             )
-            
+
             await ctx.info(f"Found {response_data['total_count']} repositories")
-            
+
             # Extract relevant information for each repository
             repositories = []
             for item in response_data.get("items", []):
@@ -134,7 +169,7 @@ async def search_github_repositories(
                     "license": item.get("license", {}).get("name") if item.get("license") else None
                 }
                 repositories.append(repo_info)
-            
+
             # Prepare result summary
             result = {
                 "search_query": query,
@@ -144,11 +179,11 @@ async def search_github_repositories(
                 "per_page": per_page,
                 "repositories": repositories
             }
-            
+
             await ctx.info(f"Successfully retrieved {len(repositories)} repositories from page {page}")
-            
+
             return json.dumps(result, indent=2)
-            
+
     except aiohttp.ClientError as e:
         await ctx.error(f"Network error while accessing GitHub API: {e}")
         raise RuntimeError(f"Failed to connect to GitHub API: {e}")
@@ -159,15 +194,195 @@ async def search_github_repositories(
         await ctx.error(f"Unexpected error during GitHub search: {e}")
         raise RuntimeError(f"GitHub search failed: {e}")
 
+@mcp.tool()
+async def get_cve_from_nist(
+    ctx: Context[ServerSession, None],
+    cve_id: str
+) -> str:
+    """
+    Retrieve CVE information from NIST NVD (National Vulnerability Database).
+    
+    Args:
+        cve_id: The CVE identifier (e.g., "CVE-2023-1234" or "2023-1234")
+    
+    Returns:
+        JSON string containing CVSS score, severity, CWE, description, and CPE configuration.
+        Returns a graceful error message if CVE is not found.
+    """
+    # Normalize CVE ID format
+    cve_id = cve_id.upper().strip()
+    if not cve_id.startswith("CVE-"):
+        cve_id = f"CVE-{cve_id}"
+    
+    # Validate CVE format (CVE-YYYY-NNNN or CVE-YYYY-NNNNN+)
+    import re
+    if not re.match(r'^CVE-\d{4}-\d{4,}$', cve_id):
+        return json.dumps({
+            "status": "error",
+            "message": f"Invalid CVE format: {cve_id}. Expected format: CVE-YYYY-NNNN"
+        }, indent=2)
+    
+    await ctx.info(f"Looking up {cve_id} in NIST NVD...")
+    
+    try:
+        # Get NIST API key from environment (optional)
+        nist_api_key = os.getenv("NIST_API_KEY")
+        
+        async with aiohttp.ClientSession() as session:
+            response_data = await make_nist_request(session, cve_id, nist_api_key)
+            
+            if response_data is None:
+                await ctx.info(f"CVE {cve_id} not found in NIST NVD")
+                return json.dumps({
+                    "status": "not_found",
+                    "message": f"CVE {cve_id} not found in NIST National Vulnerability Database",
+                    "cve_id": cve_id
+                }, indent=2)
+            
+            # Extract the vulnerability data
+            vulnerabilities = response_data.get("vulnerabilities", [])
+            if not vulnerabilities:
+                return json.dumps({
+                    "status": "not_found",
+                    "message": f"No vulnerability data found for {cve_id}",
+                    "cve_id": cve_id
+                }, indent=2)
+            
+            cve_item = vulnerabilities[0].get("cve", {})
+            
+            # Extract CVSS scores and severity
+            cvss_data = {}
+            metrics = cve_item.get("metrics", {})
+            
+            # Check for CVSS v3.1
+            if "cvssMetricV31" in metrics and metrics["cvssMetricV31"]:
+                cvss_v31 = metrics["cvssMetricV31"][0]
+                cvss_data["cvss_v31"] = {
+                    "score": cvss_v31.get("cvssData", {}).get("baseScore"),
+                    "severity": cvss_v31.get("cvssData", {}).get("baseSeverity"),
+                    "vector": cvss_v31.get("cvssData", {}).get("vectorString")
+                }
+            
+            # Check for CVSS v3.0
+            if "cvssMetricV30" in metrics and metrics["cvssMetricV30"]:
+                cvss_v30 = metrics["cvssMetricV30"][0]
+                cvss_data["cvss_v30"] = {
+                    "score": cvss_v30.get("cvssData", {}).get("baseScore"),
+                    "severity": cvss_v30.get("cvssData", {}).get("baseSeverity"),
+                    "vector": cvss_v30.get("cvssData", {}).get("vectorString")
+                }
+            
+            # Check for CVSS v2.0
+            if "cvssMetricV2" in metrics and metrics["cvssMetricV2"]:
+                cvss_v2 = metrics["cvssMetricV2"][0]
+                cvss_data["cvss_v2"] = {
+                    "score": cvss_v2.get("cvssData", {}).get("baseScore"),
+                    "severity": cvss_v2.get("baseSeverity"),
+                    "vector": cvss_v2.get("cvssData", {}).get("vectorString")
+                }
+            
+            # Extract CWE (Common Weakness Enumeration)
+            cwe_list = []
+            weaknesses = cve_item.get("weaknesses", [])
+            for weakness in weaknesses:
+                for desc in weakness.get("description", []):
+                    if desc.get("lang") == "en":
+                        cwe_list.append(desc.get("value"))
+            
+            # Extract description
+            description = ""
+            descriptions = cve_item.get("descriptions", [])
+            for desc in descriptions:
+                if desc.get("lang") == "en":
+                    description = desc.get("value", "")
+                    break
+            
+            # Extract CPE configurations (affected products)
+            cpe_configurations = []
+            configurations = cve_item.get("configurations", [])
+            for config in configurations:
+                nodes = config.get("nodes", [])
+                for node in nodes:
+                    cpe_matches = node.get("cpeMatch", [])
+                    for cpe in cpe_matches:
+                        if cpe.get("vulnerable"):
+                            cpe_info = {
+                                "cpe23Uri": cpe.get("criteria"),
+                                "versionStartIncluding": cpe.get("versionStartIncluding"),
+                                "versionEndExcluding": cpe.get("versionEndExcluding"),
+                                "versionEndIncluding": cpe.get("versionEndIncluding")
+                            }
+                            # Remove None values
+                            cpe_info = {k: v for k, v in cpe_info.items() if v is not None}
+                            cpe_configurations.append(cpe_info)
+            
+            # Extract references
+            references = []
+            for ref in cve_item.get("references", []):
+                references.append({
+                    "url": ref.get("url"),
+                    "source": ref.get("source"),
+                    "tags": ref.get("tags", [])
+                })
+            
+            # Build the result
+            result = {
+                "status": "found",
+                "cve_id": cve_item.get("id"),
+                "published": cve_item.get("published"),
+                "last_modified": cve_item.get("lastModified"),
+                "description": description,
+                "cvss_scores": cvss_data,
+                "cwe": cwe_list,
+                "cpe_configurations": cpe_configurations[:10],  # Limit to first 10 for readability
+                "references": references[:5],  # Limit to first 5 references
+                "source_identifier": cve_item.get("sourceIdentifier"),
+                "vuln_status": cve_item.get("vulnStatus")
+            }
+            
+            # Determine the primary CVSS score and severity to highlight
+            primary_cvss = None
+            if "cvss_v31" in cvss_data:
+                primary_cvss = cvss_data["cvss_v31"]
+                result["primary_severity"] = primary_cvss["severity"]
+                result["primary_score"] = primary_cvss["score"]
+            elif "cvss_v30" in cvss_data:
+                primary_cvss = cvss_data["cvss_v30"]
+                result["primary_severity"] = primary_cvss["severity"]
+                result["primary_score"] = primary_cvss["score"]
+            elif "cvss_v2" in cvss_data:
+                primary_cvss = cvss_data["cvss_v2"]
+                result["primary_severity"] = primary_cvss["severity"]
+                result["primary_score"] = primary_cvss["score"]
+            
+            await ctx.info(f"Successfully retrieved data for {cve_id}")
+            
+            return json.dumps(result, indent=2)
+            
+    except aiohttp.ClientError as e:
+        await ctx.error(f"Network error while accessing NIST NVD API: {e}")
+        return json.dumps({
+            "status": "error",
+            "message": f"Failed to connect to NIST NVD API: {str(e)}",
+            "cve_id": cve_id
+        }, indent=2)
+    except Exception as e:
+        await ctx.error(f"Unexpected error during NIST lookup: {e}")
+        return json.dumps({
+            "status": "error",
+            "message": f"Unexpected error: {str(e)}",
+            "cve_id": cve_id
+        }, indent=2)
+
 @mcp.prompt()
 def cve_repository_search(cve_number: str, include_poc: bool = True) -> str:
     """
     Generate a search prompt for finding GitHub repositories related to a specific CVE.
-    
+
     Args:
         cve_number: The CVE number (e.g., "CVE-2023-1234")
         include_poc: Whether to include PoC-specific search terms
-    
+
     Returns:
         A formatted prompt for searching CVE-related repositories
     """
@@ -175,22 +390,22 @@ def cve_repository_search(cve_number: str, include_poc: bool = True) -> str:
     cve_clean = cve_number.upper().strip()
     if not cve_clean.startswith("CVE-"):
         cve_clean = f"CVE-{cve_clean}"
-    
+
     # Base search terms
     search_terms = [cve_clean]
-    
+
     # Add PoC-specific terms if requested
     if include_poc:
         poc_terms = ["poc", "proof of concept", "exploit", "vulnerability", "demo"]
         search_terms.extend(poc_terms)
-    
+
     # Additional qualifiers for better results
     qualifiers = [
         "in:name,description,readme",  # Search in multiple fields
         "sort:updated",  # Get recently updated repos
         "order:desc"  # Most recent first
     ]
-    
+
     prompt = f"""
 Use the search_github_repositories tool to find repositories related to {cve_clean}.
 
@@ -227,14 +442,14 @@ Recommended search strategies:
 
 The search will return repository URLs that you can access to examine the PoC code.
 """
-    
+
     return prompt
 
 @mcp.prompt()
 def advanced_cve_search_strategies() -> str:
     """
     Generate advanced search strategies for CVE research on GitHub.
-    
+
     Returns:
         A comprehensive guide for advanced CVE repository searching
     """
