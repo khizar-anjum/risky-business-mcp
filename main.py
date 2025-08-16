@@ -534,6 +534,160 @@ async def list_github_repository_files(
         await ctx.error(f"Unexpected error during file listing: {e}")
         raise RuntimeError(f"GitHub file listing failed: {e}")
 
+@mcp.tool()
+async def get_github_file_content(
+    ctx: Context[ServerSession, None],
+    repo_url: str,
+    file_path: str,
+    branch: str = "main"
+) -> str:
+    """
+    Get the content of a specific file from a GitHub repository using the Get Repository Content API.
+    
+    Args:
+        repo_url: GitHub repository URL (e.g., "https://github.com/owner/repo")
+        file_path: Path to the file within the repository (e.g., "src/exploit.py")
+        branch: Branch name to get file from (default: "main")
+    
+    Returns:
+        JSON string containing the file content and metadata
+    """
+    await ctx.info(f"Fetching file content: {file_path} from {repo_url}")
+    
+    try:
+        # Parse the GitHub URL to get owner and repo
+        owner, repo = parse_github_url(repo_url)
+        await ctx.info(f"Parsed repository: {owner}/{repo}")
+        
+        # Get GitHub token from environment (optional)
+        github_token = os.getenv("GITHUB_TOKEN")
+        
+        async with aiohttp.ClientSession() as session:
+            # Construct the API endpoint for getting file content
+            content_endpoint = f"/repos/{owner}/{repo}/contents/{file_path}"
+            params = {"ref": branch}
+            
+            await ctx.info(f"Fetching content from branch '{branch}'...")
+            
+            response_data = await make_github_request(
+                session, content_endpoint, params, github_token
+            )
+            
+            # Check if this is a file (not a directory)
+            if response_data.get("type") != "file":
+                return json.dumps({
+                    "status": "error",
+                    "message": f"'{file_path}' is not a file (type: {response_data.get('type', 'unknown')})",
+                    "repository": f"{owner}/{repo}",
+                    "file_path": file_path,
+                    "branch": branch
+                }, indent=2)
+            
+            # Get the Base64 encoded content
+            encoded_content = response_data.get("content", "")
+            
+            # Decode the Base64 content
+            try:
+                import base64
+                # Remove any whitespace/newlines from the base64 string
+                cleaned_content = encoded_content.replace('\n', '').replace('\r', '')
+                decoded_bytes = base64.b64decode(cleaned_content)
+                
+                # Try to decode as UTF-8 text
+                try:
+                    file_content = decoded_bytes.decode('utf-8')
+                    is_text_file = True
+                except UnicodeDecodeError:
+                    # If it's not UTF-8, it's likely a binary file
+                    file_content = f"<Binary file - {len(decoded_bytes)} bytes>"
+                    is_text_file = False
+                    
+            except Exception as e:
+                return json.dumps({
+                    "status": "error",
+                    "message": f"Failed to decode file content: {str(e)}",
+                    "repository": f"{owner}/{repo}",
+                    "file_path": file_path,
+                    "branch": branch
+                }, indent=2)
+            
+            # Check file size
+            file_size = response_data.get("size", 0)
+            if file_size > 1048576:  # 1MB limit
+                return json.dumps({
+                    "status": "error",
+                    "message": f"File too large ({file_size} bytes). Maximum supported size is 1MB.",
+                    "repository": f"{owner}/{repo}",
+                    "file_path": file_path,
+                    "branch": branch
+                }, indent=2)
+            
+            # Prepare the result
+            result = {
+                "status": "success",
+                "repository": {
+                    "owner": owner,
+                    "name": repo,
+                    "url": repo_url,
+                    "branch": branch
+                },
+                "file": {
+                    "path": file_path,
+                    "name": response_data.get("name"),
+                    "size": file_size,
+                    "sha": response_data.get("sha"),
+                    "url": response_data.get("html_url"),
+                    "download_url": response_data.get("download_url"),
+                    "is_text_file": is_text_file,
+                    "encoding": response_data.get("encoding", "base64")
+                },
+                "content": file_content
+            }
+            
+            if is_text_file:
+                # Add some basic analysis for text files
+                lines = file_content.split('\n')
+                result["file"]["line_count"] = len(lines)
+                result["file"]["is_empty"] = len(file_content.strip()) == 0
+                
+                # Try to detect file type based on extension
+                file_extension = file_path.split('.')[-1].lower() if '.' in file_path else ''
+                result["file"]["extension"] = file_extension
+                
+                await ctx.info(f"Successfully retrieved {len(lines)} lines from {file_path}")
+            else:
+                await ctx.info(f"Retrieved binary file {file_path} ({file_size} bytes)")
+            
+            return json.dumps(result, indent=2)
+            
+    except ValueError as e:
+        await ctx.error(f"Invalid input: {e}")
+        return json.dumps({
+            "status": "error",
+            "message": str(e),
+            "repository": repo_url,
+            "file_path": file_path,
+            "branch": branch
+        }, indent=2)
+    except aiohttp.ClientError as e:
+        await ctx.error(f"Network error while accessing GitHub API: {e}")
+        return json.dumps({
+            "status": "error", 
+            "message": f"Failed to connect to GitHub API: {str(e)}",
+            "repository": repo_url,
+            "file_path": file_path,
+            "branch": branch
+        }, indent=2)
+    except Exception as e:
+        await ctx.error(f"Unexpected error during file content retrieval: {e}")
+        return json.dumps({
+            "status": "error",
+            "message": f"Unexpected error: {str(e)}",
+            "repository": repo_url, 
+            "file_path": file_path,
+            "branch": branch
+        }, indent=2)
+
 @mcp.prompt()
 def cve_repository_search(cve_number: str, include_poc: bool = True) -> str:
     """
