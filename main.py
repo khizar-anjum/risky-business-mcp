@@ -49,12 +49,12 @@ async def make_github_request(
 
 @mcp.tool()
 async def search_github_repositories(
+    ctx: Context[ServerSession, None],
     query: str,
     sort: str = "best-match",
     order: str = "desc",
     per_page: int = 30,
-    page: int = 1,
-    ctx: Context[ServerSession, None]
+    page: int = 1
 ) -> str:
     """
     Search GitHub repositories using the GitHub API.
