@@ -21,26 +21,35 @@ A Model Context Protocol (MCP) server that enables AI assistants to search GitHu
 
 ### Installation
 
-1. **Clone or download the server file**
+1. **Clone the repository**
 
 ```bash
-# Create a new directory for your MCP server
-mkdir github-search-mcp
-cd github-search-mcp
-
-# Save the server code as github_search_server.py
+git clone https://github.com/khizar-anjum/risky-business-mcp.git
+cd risky-business-mcp
 ```
 
-2. **Install dependencies**
+2. **Set up Python virtual environment**
 
 ```bash
-# Using uv (recommended)
-uv init .
-uv add "mcp[cli]" aiohttp
+# Create a virtual environment
+python3 -m venv venv
 
-# Or using pip
-pip install "mcp[cli]" aiohttp
+# Activate the virtual environment
+# On Linux/macOS:
+source venv/bin/activate
+# On Windows:
+# venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
+
+**Note:** The `requirements.txt` includes:
+- Flask 3.0.0 and FastAPI 0.115.5 for server options
+- uvicorn 0.35.0 for ASGI server
+- aiohttp 3.9.1 for async HTTP requests
+- mcp for Model Context Protocol support
+- pydantic for data validation
 
 3. **Optional: Set up GitHub authentication**
 
@@ -51,16 +60,23 @@ export GITHUB_TOKEN="your_github_token_here"
 
 ### Running the Server
 
+**With virtual environment activated:**
+
+```bash
+# Make sure the virtual environment is activated
+source venv/bin/activate  # Linux/macOS
+# or
+# venv\Scripts\activate  # Windows
+
+# Run the MCP server
+python main.py
+```
+
 **Development mode (with MCP Inspector):**
 
 ```bash
-uv run mcp dev github_search_server.py
-```
-
-**Direct execution:**
-
-```bash
-python github_search_server.py
+# With venv activated
+mcp dev main.py
 ```
 
 ## 🔧 Configuration
@@ -87,12 +103,9 @@ code %APPDATA%\Claude\claude_desktop_config.json
 {
   "mcpServers": {
     "github-search": {
-      "command": "uv",
+      "command": "/absolute/path/to/risky-business-mcp/venv/bin/python",
       "args": [
-        "--directory",
-        "/absolute/path/to/github-search-mcp",
-        "run",
-        "github_search_server.py"
+        "/absolute/path/to/risky-business-mcp/main.py"
       ],
       "env": {
         "GITHUB_TOKEN": "your_github_token_here"

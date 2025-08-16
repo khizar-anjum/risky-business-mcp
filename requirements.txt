@@ -1,0 +1,6 @@
+flask==3.0.0
+fastapi==0.115.5
+uvicorn==0.24.0
+pydantic
+aiohttp==3.9.1
+mcp
