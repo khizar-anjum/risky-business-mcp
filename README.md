@@ -4,7 +4,7 @@ A comprehensive Model Context Protocol (MCP) server for cybersecurity vulnerabil
 
 ## 📹 Demo
 
-https://github.com/user-attachments/assets/6a3f5a4f-7e0e-4c0f-bdc5-2f5d86ba9b0f
+[Watch the Demo Video](./risky_demo/risky_business_demo.mkv)
 
 ### Demo Workflow
 
